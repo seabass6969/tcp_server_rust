@@ -6,7 +6,7 @@ use tokio::{
     spawn,
 };
 
-const PAYLOAD_SIZE: usize = 16;
+const PAYLOAD_SIZE: usize = 10;
 fn error(message: &str) -> ! {
     eprintln!("{message}");
     std::process::exit(1);
@@ -35,7 +35,7 @@ async fn client() {
         std::io::stdin()
             .read_line(&mut user_input)
             .expect("There should be a message!");
-        let _ = stream.write(user_input.as_bytes()).await;
+        let _ = stream.write_all(&user_input.into_bytes()).await;
     }
 }
 
@@ -44,17 +44,28 @@ async fn server() {
     println!("Server starting at {}", &server_address);
     let listener = TcpListener::bind(server_address).await.unwrap();
     loop {
-        let (socket, _) = listener.accept().await.unwrap();
-        spawn(async move { handle_client(socket).await });
+        let (socket, port) = listener.accept().await.unwrap();
+        spawn(async move { handle_client(socket, port).await });
     }
 }
-async fn handle_client(mut socket: TcpStream) {
+async fn handle_client(mut socket: TcpStream, port: std::net::SocketAddr) {
+    println!("[server] New Client from {port}");
     loop {
         let mut buf = [0; PAYLOAD_SIZE];
-        socket.read_exact(&mut buf).await.unwrap();
-        match str::from_utf8(&buf) {
-            Ok(result) => println!("{result}"),
-            Err(_) => eprintln!("String formating issue!!!!"),
-        };
+        let n = socket.read(&mut buf).await.unwrap();
+        if n == 0 {
+            println!("[server] Client exited gracefully!");
+            return;
+        }
+        let remove_empty = &buf[..n]
+            .iter()
+            .copied()
+            .filter(|&x| x != 0u8 || x != b'\n')
+            .collect::<Vec<u8>>();
+        let string_literal = str::from_utf8(remove_empty);
+        match string_literal {
+            Ok(result) => print!("[client: {port}] {result}"),
+            Err(_) => println!("[server] issue with string formating"),
+        }
     }
 }
